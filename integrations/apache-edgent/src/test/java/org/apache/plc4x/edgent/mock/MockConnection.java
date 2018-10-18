@@ -21,8 +21,8 @@ package org.apache.plc4x.edgent.mock;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.plc4x.java.api.authentication.PlcAuthentication;
-import org.apache.plc4x.java.api.connection.PlcReader;
-import org.apache.plc4x.java.api.connection.PlcWriter;
+import org.apache.plc4x.java.base.messages.PlcReader;
+import org.apache.plc4x.java.base.messages.PlcWriter;
 import org.apache.plc4x.java.api.exceptions.PlcIoException;
 import org.apache.plc4x.java.api.messages.PlcReadRequest;
 import org.apache.plc4x.java.api.messages.PlcReadResponse;
@@ -36,6 +36,7 @@ import org.apache.plc4x.java.base.messages.items.FieldItem;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public class MockConnection extends org.apache.plc4x.java.base.connection.MockConnection implements PlcReader, PlcWriter {
@@ -67,16 +68,16 @@ public class MockConnection extends org.apache.plc4x.java.base.connection.MockCo
     }
 
     @Override
-    public PlcReadRequest.Builder readRequestBuilder() {
-        return new DefaultPlcReadRequest.Builder(new MockFieldHandler());
+    public Optional<PlcReadRequest.Builder> readRequestBuilder() {
+        return Optional.of(new DefaultPlcReadRequest.Builder(this, new MockFieldHandler()));
     }
 
     @Override
-    public CompletableFuture<PlcReadResponse<?>> read(PlcReadRequest readRequest) {
+    public CompletableFuture<PlcReadResponse> read(PlcReadRequest readRequest) {
         curReadCnt++;
         if (readExceptionTriggerCount > 0 && curReadCnt == readExceptionTriggerCount) {
             curReadCnt = 0;
-            CompletableFuture<PlcReadResponse<?>> cf = new CompletableFuture<>();
+            CompletableFuture<PlcReadResponse> cf = new CompletableFuture<>();
             cf.completeExceptionally(new PlcIoException(readExceptionMsg));
             return cf;
         }
@@ -90,18 +91,18 @@ public class MockConnection extends org.apache.plc4x.java.base.connection.MockCo
     }
 
     @Override
-    public PlcWriteRequest.Builder writeRequestBuilder() {
-        return new DefaultPlcWriteRequest.Builder(new MockFieldHandler());
+    public Optional<PlcWriteRequest.Builder> writeRequestBuilder() {
+        return Optional.of(new DefaultPlcWriteRequest.Builder(this, new MockFieldHandler()));
     }
 
     @SuppressWarnings("unchecked")
     @Override
-    public CompletableFuture<PlcWriteResponse<?>> write(PlcWriteRequest writeRequest) {
+    public CompletableFuture<PlcWriteResponse> write(PlcWriteRequest writeRequest) {
         DefaultPlcWriteRequest defaultPlcWriteRequest = (DefaultPlcWriteRequest) writeRequest;
         curWriteCnt++;
         if (writeExceptionTriggerCount > 0 && curWriteCnt == writeExceptionTriggerCount) {
             curWriteCnt = 0;
-            CompletableFuture<PlcWriteResponse<?>> cf = new CompletableFuture<>();
+            CompletableFuture<PlcWriteResponse> cf = new CompletableFuture<>();
             cf.completeExceptionally(new PlcIoException(writeExceptionMsg));
             return cf;
         }

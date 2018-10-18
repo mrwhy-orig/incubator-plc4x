@@ -32,7 +32,6 @@ import org.apache.plc4x.java.ads.model.*;
 import org.apache.plc4x.java.ads.protocol.Ads2PayloadProtocol;
 import org.apache.plc4x.java.ads.protocol.Payload2TcpProtocol;
 import org.apache.plc4x.java.ads.protocol.Plc4x2AdsProtocol;
-import org.apache.plc4x.java.api.connection.PlcSubscriber;
 import org.apache.plc4x.java.api.exceptions.PlcConnectionException;
 import org.apache.plc4x.java.api.exceptions.PlcNotImplementedException;
 import org.apache.plc4x.java.api.exceptions.PlcRuntimeException;
@@ -46,6 +45,7 @@ import org.apache.plc4x.java.base.messages.*;
 import org.apache.plc4x.java.base.model.DefaultPlcConsumerRegistration;
 import org.apache.plc4x.java.base.model.InternalPlcConsumerRegistration;
 import org.apache.plc4x.java.base.model.InternalPlcSubscriptionHandle;
+import org.apache.plc4x.java.base.model.SubscriptionPlcField;
 import org.apache.plc4x.java.base.protocol.SingleItemToSingleRequestProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +53,7 @@ import org.slf4j.LoggerFactory;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -114,7 +115,7 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
                 pipeline.addLast(new Payload2TcpProtocol());
                 pipeline.addLast(new Ads2PayloadProtocol());
                 pipeline.addLast(new Plc4x2AdsProtocol(targetAmsNetId, targetAmsPort, sourceAmsNetId, sourceAmsPort, fieldMapping));
-                pipeline.addLast(new SingleItemToSingleRequestProtocol(timer));
+                pipeline.addLast(new SingleItemToSingleRequestProtocol(AdsTcpPlcConnection.this, AdsTcpPlcConnection.this, timer)); // TODO: remove nulls; implement correctly
             }
         };
     }
@@ -144,7 +145,8 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
             throw new PlcNotImplementedException("Multirequest on subscribe not implemented yet");
         }
 
-        PlcField field = internalPlcSubscriptionRequest.getFields().get(0);
+        SubscriptionPlcField subscriptionPlcField = internalPlcSubscriptionRequest.getSubscriptionFields().get(0);
+        PlcField field = subscriptionPlcField.getPlcField();
 
         IndexGroup indexGroup;
         IndexOffset indexOffset;
@@ -176,15 +178,17 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
         }
 
         final TransmissionMode transmissionMode;
-        switch (internalPlcSubscriptionRequest.getPlcSubscriptionType()) {
+        long cycleTime = 4000000;
+        switch (subscriptionPlcField.getPlcSubscriptionType()) {
             case CYCLIC:
                 transmissionMode = TransmissionMode.DefinedValues.ADSTRANS_SERVERCYCLE;
+                cycleTime = subscriptionPlcField.getDuration().orElseThrow(IllegalStateException::new).get(ChronoUnit.MILLIS);
                 break;
             case CHANGE_OF_STATE:
                 transmissionMode = TransmissionMode.DefinedValues.ADSTRANS_SERVERONCHA;
                 break;
             default:
-                throw new PlcRuntimeException("Unmapped type " + internalPlcSubscriptionRequest.getPlcSubscriptionType());
+                throw new PlcRuntimeException("Unmapped type " + subscriptionPlcField.getPlcSubscriptionType());
         }
 
         // Prepare the subscription request itself.
@@ -199,21 +203,21 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
             Length.of(adsDataType.getTargetByteSize() * numberOfElements),
             transmissionMode,
             MaxDelay.of(0),
-            CycleTime.of(4000000)
+            CycleTime.of(cycleTime)
         );
 
         // Send the request to the plc and wait for a response
         // TODO: This is blocking, should be changed to be async.
-        CompletableFuture<InternalPlcProprietaryResponse<InternalPlcProprietaryRequest<AdsAddDeviceNotificationRequest>, AdsAddDeviceNotificationResponse>> addDeviceFuture = new CompletableFuture<>();
+        CompletableFuture<InternalPlcProprietaryResponse<AdsAddDeviceNotificationResponse>> addDeviceFuture = new CompletableFuture<>();
         channel.writeAndFlush(new PlcRequestContainer<>(new DefaultPlcProprietaryRequest<>(adsAddDeviceNotificationRequest), addDeviceFuture));
-        InternalPlcProprietaryResponse<InternalPlcProprietaryRequest<AdsAddDeviceNotificationRequest>, AdsAddDeviceNotificationResponse> addDeviceResponse = getFromFuture(addDeviceFuture, ADD_DEVICE_TIMEOUT);
+        InternalPlcProprietaryResponse<AdsAddDeviceNotificationResponse> addDeviceResponse = getFromFuture(addDeviceFuture, ADD_DEVICE_TIMEOUT);
         AdsAddDeviceNotificationResponse response = addDeviceResponse.getResponse();
 
         // Abort if we got anything but a successful response.
         if (response.getResult().toAdsReturnCode() != AdsReturnCode.ADS_CODE_0) {
             throw new PlcRuntimeException("Error code received " + response.getResult());
         }
-        AdsSubscriptionHandle adsSubscriptionHandle = new AdsSubscriptionHandle(response.getNotificationHandle());
+        AdsSubscriptionHandle adsSubscriptionHandle = new AdsSubscriptionHandle(this, response.getNotificationHandle());
 
         Map<String, Pair<PlcResponseCode, PlcSubscriptionHandle>> responseItems = internalPlcSubscriptionRequest.getFieldNames()
             .stream()
@@ -241,11 +245,11 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
                         Invoke.NONE,
                         adsSubscriptionHandle.getNotificationHandle()
                     );
-                CompletableFuture<InternalPlcProprietaryResponse<DefaultPlcProprietaryRequest<AdsDeleteDeviceNotificationRequest>, AdsDeleteDeviceNotificationResponse>> deleteDeviceFuture =
+                CompletableFuture<InternalPlcProprietaryResponse<AdsDeleteDeviceNotificationResponse>> deleteDeviceFuture =
                     new CompletableFuture<>();
                 channel.writeAndFlush(new PlcRequestContainer<>(new DefaultPlcProprietaryRequest<>(adsDeleteDeviceNotificationRequest), deleteDeviceFuture));
 
-                InternalPlcProprietaryResponse<DefaultPlcProprietaryRequest<AdsDeleteDeviceNotificationRequest>, AdsDeleteDeviceNotificationResponse> deleteDeviceResponse =
+                InternalPlcProprietaryResponse<AdsDeleteDeviceNotificationResponse> deleteDeviceResponse =
                     getFromFuture(deleteDeviceFuture, DEL_DEVICE_TIMEOUT);
                 AdsDeleteDeviceNotificationResponse response = deleteDeviceResponse.getResponse();
                 if (response.getResult().toAdsReturnCode() != AdsReturnCode.ADS_CODE_0) {
@@ -263,7 +267,6 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
         return register(consumer, handles.toArray(new PlcSubscriptionHandle[0]));
     }
 
-    @Override
     public InternalPlcConsumerRegistration register(Consumer<PlcSubscriptionEvent> consumer, PlcSubscriptionHandle... handles) {
         Objects.requireNonNull(consumer);
         Objects.requireNonNull(handles);
@@ -272,7 +275,7 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
             internalPlcSubscriptionHandles[i] = checkInternal(handles[i], InternalPlcSubscriptionHandle.class);
         }
 
-        InternalPlcConsumerRegistration internalPlcConsumerRegistration = new DefaultPlcConsumerRegistration(consumer, internalPlcSubscriptionHandles);
+        InternalPlcConsumerRegistration internalPlcConsumerRegistration = new DefaultPlcConsumerRegistration(this, consumer, internalPlcSubscriptionHandles);
 
         Consumer<AdsDeviceNotificationRequest> adsDeviceNotificationRequestConsumer =
             adsDeviceNotificationRequest -> adsDeviceNotificationRequest.getAdsStampHeaders().forEach(adsStampHeader -> {
@@ -310,13 +313,13 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
     }
 
     @Override
-    public PlcSubscriptionRequest.Builder subscriptionRequestBuilder() {
-        return new DefaultPlcSubscriptionRequest.Builder(new AdsPlcFieldHandler());
+    public Optional<PlcSubscriptionRequest.Builder> subscriptionRequestBuilder() {
+        return Optional.of(new DefaultPlcSubscriptionRequest.Builder(this, new AdsPlcFieldHandler()));
     }
 
     @Override
-    public PlcUnsubscriptionRequest.Builder unsubscriptionRequestBuilder() {
-        return new DefaultPlcUnsubscriptionRequest.Builder();
+    public Optional<PlcUnsubscriptionRequest.Builder> unsubscriptionRequestBuilder() {
+        return Optional.of(new DefaultPlcUnsubscriptionRequest.Builder(this));
     }
 
     @Override

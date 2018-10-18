@@ -20,13 +20,17 @@ package org.apache.plc4x.java.test;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
-import org.apache.plc4x.java.api.connection.*;
+import org.apache.plc4x.java.api.PlcConnection;
+import org.apache.plc4x.java.base.messages.PlcReader;
+import org.apache.plc4x.java.base.messages.PlcWriter;
 import org.apache.plc4x.java.api.messages.*;
 import org.apache.plc4x.java.api.types.PlcResponseCode;
 import org.apache.plc4x.java.base.messages.*;
 import org.apache.plc4x.java.base.messages.items.FieldItem;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -57,27 +61,27 @@ class TestConnection implements PlcConnection, PlcReader, PlcWriter {
     }
 
     @Override
-    public Optional<PlcReader> getReader() {
-        return Optional.of(this);
+    public Optional<PlcReadRequest.Builder> readRequestBuilder() {
+        return Optional.of(new DefaultPlcReadRequest.Builder(this, new TestFieldHandler()));
     }
 
     @Override
-    public Optional<PlcWriter> getWriter() {
-        return Optional.of(this);
+    public Optional<PlcWriteRequest.Builder> writeRequestBuilder() {
+        return Optional.of(new DefaultPlcWriteRequest.Builder(this, new TestFieldHandler()));
     }
 
     @Override
-    public Optional<PlcSubscriber> getSubscriber() {
-        return Optional.empty(); // TODO: implement this
+    public Optional<PlcSubscriptionRequest.Builder> subscriptionRequestBuilder() {
+        return Optional.empty();
     }
 
     @Override
-    public PlcReadRequest.Builder readRequestBuilder() {
-        return new DefaultPlcReadRequest.Builder(new TestFieldHandler());
+    public Optional<PlcUnsubscriptionRequest.Builder> unsubscriptionRequestBuilder() {
+        return Optional.empty();
     }
 
     @Override
-    public CompletableFuture<PlcReadResponse<?>> read(PlcReadRequest readRequest) {
+    public CompletableFuture<PlcReadResponse> read(PlcReadRequest readRequest) {
         if(!(readRequest instanceof InternalPlcReadRequest)) {
             throw new IllegalArgumentException("Read request doesn't implement InternalPlcReadRequest");
         }
@@ -93,17 +97,12 @@ class TestConnection implements PlcConnection, PlcReader, PlcWriter {
                 : new ImmutablePair<>(PlcResponseCode.NOT_FOUND, null);
             fields.put(fieldName, fieldPair);
         }
-        PlcReadResponse<?> response = new DefaultPlcReadResponse(request, fields);
+        PlcReadResponse response = new DefaultPlcReadResponse(request, fields);
         return CompletableFuture.completedFuture(response);
     }
 
     @Override
-    public PlcWriteRequest.Builder writeRequestBuilder() {
-        return new DefaultPlcWriteRequest.Builder(new TestFieldHandler());
-    }
-
-    @Override
-    public CompletableFuture<PlcWriteResponse<?>> write(PlcWriteRequest writeRequest) {
+    public CompletableFuture<PlcWriteResponse> write(PlcWriteRequest writeRequest) {
         if(!(writeRequest instanceof InternalPlcWriteRequest)) {
             throw new IllegalArgumentException("Read request doesn't implement InternalPlcWriteRequest");
         }
@@ -115,7 +114,7 @@ class TestConnection implements PlcConnection, PlcReader, PlcWriter {
             device.set(field, fieldItem);
             fields.put(fieldName, PlcResponseCode.OK);
         }
-        PlcWriteResponse<?> response = new DefaultPlcWriteResponse(request, fields);
+        PlcWriteResponse response = new DefaultPlcWriteResponse(request, fields);
         return CompletableFuture.completedFuture(response);
     }
 

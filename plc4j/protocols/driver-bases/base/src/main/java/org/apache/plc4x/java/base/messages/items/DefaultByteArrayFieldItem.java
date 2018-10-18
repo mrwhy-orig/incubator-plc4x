@@ -18,10 +18,17 @@ under the License.
 */
 package org.apache.plc4x.java.base.messages.items;
 
+import org.apache.plc4x.java.api.exceptions.PlcIncompatibleDatatypeException;
+
+import java.util.Objects;
+
 public class DefaultByteArrayFieldItem extends FieldItem<Byte[]> {
 
     public DefaultByteArrayFieldItem(Byte[]... values) {
         super(values);
+        for (Byte[] value : values) {
+            Objects.requireNonNull(value);
+        }
     }
 
     @Override
@@ -37,6 +44,9 @@ public class DefaultByteArrayFieldItem extends FieldItem<Byte[]> {
 
     @Override
     public Byte[] getByteArray(int index) {
+        if(!isValidByteArray(index)) {
+            throw new PlcIncompatibleDatatypeException(Byte[].class, index);
+        }
         return getValue(index);
     }
 

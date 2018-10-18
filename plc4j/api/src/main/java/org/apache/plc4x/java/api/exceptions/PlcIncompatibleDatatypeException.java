@@ -7,7 +7,7 @@
  "License"); you may not use this file except in compliance
  with the License.  You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
  Unless required by applicable law or agreed to in writing,
  software distributed under the License is distributed on an
@@ -16,14 +16,13 @@
  specific language governing permissions and limitations
  under the License.
  */
-package org.apache.plc4x.java.api.connection;
 
-import org.apache.plc4x.java.api.messages.PlcProprietaryRequest;
-import org.apache.plc4x.java.api.messages.PlcProprietaryResponse;
+package org.apache.plc4x.java.api.exceptions;
 
-import java.util.concurrent.CompletableFuture;
+public class PlcIncompatibleDatatypeException extends PlcRuntimeException {
 
-public interface PlcProprietarySender {
+    public PlcIncompatibleDatatypeException(Class<?> datatype, int index) {
+        super("Incompatible Datatype " + datatype.getName() + " at index " + index);
+    }
 
-    <PROP_REQUEST, PROP_RESPONSE> CompletableFuture<PlcProprietaryResponse<PlcProprietaryRequest<PROP_REQUEST>, PROP_RESPONSE>> send(PlcProprietaryRequest<PROP_REQUEST> proprietaryRequest);
 }
